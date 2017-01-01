@@ -1,0 +1,129 @@
+---
+title: "Practical Machine Learning Project"
+author: "Jose Gonzalez"
+date: "31 décembre 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cache=TRUE}
+training<-read.csv("pml-training.csv")
+testing<-read.csv("pml-testing.csv")
+```
+
+#Data Cleaning
+
+Remove first 7 variables which do not seem to be related with the sensor information
+```{r}
+training <- training[, 8:160]
+testing  <- testing[, 8:160]
+```
+
+Remove columns which are most NA
+```{r}
+is_data  <- apply(!is.na(training), 2, sum) > 19621  # which is the number of observations
+training <- training[, is_data]
+testing  <- testing[, is_data]
+```
+
+Partition training data for cross-validation
+```{r}
+library(caret)
+set.seed(3141592)
+inTrain <- createDataPartition(y=training$classe, p=0.60, list=FALSE)
+train1  <- training[inTrain,]
+train2  <- training[-inTrain,]
+dim(train1)
+```
+
+Remove near zero covariates
+```{r}
+nzv_cols <- nearZeroVar(train1)
+if(length(nzv_cols) > 0) {
+  train1 <- train1[, -nzv_cols]
+  train2 <- train2[, -nzv_cols]
+}
+dim(train1)
+```
+
+We will try through a quick random forest classification to have an estimation of the variable importance
+```{r}
+library(randomForest)
+set.seed(3141592)
+fitModel <- randomForest(classe~., data=train1, importance=TRUE, ntree=100)
+varImpPlot(fitModel)
+```
+
+We select the 10 first variables with most importance
+```{r}
+importance<-fitModel$importance
+importance<-importance[order(-importance[,6]),]
+rownames(importance[1:10,])
+```
+
+We now create a formula with those variables
+```{r}
+myFormula<-paste(rownames(importance[1:10,]),collapse="+")
+myFormula<-paste("classe~",myFormula,sep="")
+myFormula
+```
+
+And create a more complex random forest model with this formula
+```{r cache=TRUE}
+set.seed(3141592)
+fitModel <- train(as.formula(myFormula),
+                  data=train1,
+                  method="rf",
+                  trControl=trainControl(method="cv",number=2),
+                  prox=TRUE,
+                  verbose=TRUE,
+                  allowParallel=TRUE)
+```
+
+
+Quality on training set 1
+```{r}
+predictions <- predict(fitModel, newdata=train1)
+confusionMat <- confusionMatrix(predictions, train1$classe)
+confusionMat
+```
+
+Cross-validation
+```{r}
+predictions <- predict(fitModel, newdata=train2)
+confusionMat <- confusionMatrix(predictions, train2$classe)
+confusionMat
+```
+
+
+```{r cache=TRUE}
+library(caret)
+library(MASS)
+#model_rf<-train(classe~.,method="rf",data=training,na.action=na.omit)
+#model_reg<-train(classe~.,method="glm",data=training,na.action=na.omit) #Unusable, can only predict two outcome
+#model_lda<-train(classe~.,method="lda",data=training,na.action=na.omit)
+```
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
